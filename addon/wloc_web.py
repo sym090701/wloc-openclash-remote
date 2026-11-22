@@ -456,6 +456,12 @@ class WlocWebApplication:
         self.port = port
         self.allowed_networks = allowed_networks
         self.allowed_hosts = allowed_hosts
+        self.ca_cert_path = Path(
+            os.environ.get(
+                "WLOC_CA_CERT_PATH",
+                "/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem",
+            )
+        )
         self.started_at = utc_now()
         self.rate_limiter = _RateLimiter()
         self._mutation_lock = threading.RLock()
@@ -808,6 +814,27 @@ class WlocRequestHandler(BaseHTTPRequestHandler):
                 self._fail(HTTPStatus.UNAUTHORIZED, "authentication required")
                 return
             self._json(HTTPStatus.OK, {"ok": True, **self.app.state()})
+            return
+        if path == "/api/ca-cert":
+            if not self._authenticated():
+                self._fail(HTTPStatus.UNAUTHORIZED, "authentication required")
+                return
+            try:
+                content = self.app.ca_cert_path.read_bytes()
+            except OSError:
+                self._fail(HTTPStatus.NOT_FOUND, "CA certificate is not available")
+                return
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/x-pem-file")
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header(
+                "Content-Disposition",
+                'attachment; filename="wloc-mitmproxy-ca-cert.pem"',
+            )
+            self._security_headers(cache="no-store")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(content)
             return
         self._fail(HTTPStatus.NOT_FOUND, "not found")
 
