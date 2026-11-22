@@ -16,18 +16,22 @@ WLOC_REMOTE_SERVER="$WLOC_REMOTE_SERVER" WLOC_ROUTER_IP="$WLOC_ROUTER_IP" WLOC_C
   name = "WLOC-ALL-MITM-REMOTE"
   value["proxies"].reject! { |p| p.is_a?(Hash) && p["name"].to_s == name }
   value["proxies"].unshift("name" => name, "type" => "http", "server" => server, "port" => 18081)
+  wloc_domains = [
+    "gs-loc.apple.com",
+    "gs-loc-cn.apple.com",
+    "gsp-ssl.ls.apple.com",
+    "bluedot.is.autonavi.com",
+    "bluedot.is.autonavi.com.gds.alibabadns.com"
+  ]
   value["rules"].reject! do |rule|
     text = rule.to_s
-    text.include?(name) || text.include?("DOMAIN,gs-loc.apple.com") || text.include?("DOMAIN,gs-loc-cn.apple.com") || text.include?("SRC-IP-CIDR,#{server}/32") || text.include?("SRC-IP-CIDR,#{router}/32")
+    text.include?(name) || wloc_domains.any? { |domain| text.include?("DOMAIN,#{domain}") } || text.include?("SRC-IP-CIDR,#{server}/32") || text.include?("SRC-IP-CIDR,#{router}/32")
   end
-  generated = [
-    "SRC-IP-CIDR,#{server}/32,DIRECT",
-    "SRC-IP-CIDR,#{router}/32,DIRECT",
-    "AND,((DOMAIN,gs-loc.apple.com),(NETWORK,UDP)),REJECT",
-    "AND,((DOMAIN,gs-loc-cn.apple.com),(NETWORK,UDP)),REJECT",
-    "DOMAIN,gs-loc.apple.com,#{name}",
-    "DOMAIN,gs-loc-cn.apple.com,#{name}"
-  ]
+  generated = ["SRC-IP-CIDR,#{server}/32,DIRECT", "SRC-IP-CIDR,#{router}/32,DIRECT"]
+  wloc_domains.each do |domain|
+    generated << "AND,((DOMAIN,#{domain}),(NETWORK,UDP)),REJECT"
+    generated << "DOMAIN,#{domain},#{name}"
+  end
   value["rules"] = generated + value["rules"]
   stat = File.stat(path)
   tmp = "#{path}.wloc-remote.#{$$}.tmp"

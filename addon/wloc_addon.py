@@ -28,7 +28,13 @@ from wloc_web import (
 
 
 LOGGER = logging.getLogger("wloc")
-ALLOWED_HOSTS = {"gs-loc.apple.com", "gs-loc-cn.apple.com"}
+ALLOWED_HOSTS = {
+    "gs-loc.apple.com",
+    "gs-loc-cn.apple.com",
+    "gsp-ssl.ls.apple.com",
+    "bluedot.is.autonavi.com",
+    "bluedot.is.autonavi.com.gds.alibabadns.com",
+}
 WLOC_PATH = "/clls/wloc"
 
 
