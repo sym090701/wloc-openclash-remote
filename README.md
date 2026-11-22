@@ -9,7 +9,7 @@ iPhone / LAN client
         |
         v
 OpenWrt + OpenClash
-        |  gs-loc.apple.com / gs-loc-cn.apple.com / gsp-ssl.ls.apple.com / bluedot.is.autonavi.com / bluedot.is.autonavi.com.gds.alibabadns.com
+        |  gs-loc.apple.com / gs-loc-cn.apple.com
         v
 Docker server:18081 (mitmproxy + WLOC addon)
         |
