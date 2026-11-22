@@ -688,7 +688,7 @@ class WlocRequestHandler(BaseHTTPRequestHandler):
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self'; style-src 'self'; "
-            "img-src 'self' data: https://tile.openstreetmap.org; "
+            "img-src 'self' data: https://server.arcgisonline.com; "
             "connect-src 'self'; object-src 'none'; base-uri 'none'; "
             "frame-ancestors 'none'; form-action 'self'",
         )
