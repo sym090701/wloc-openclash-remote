@@ -99,6 +99,14 @@
         <div id="location-editor" class="location-layout">
           <div class="map-wrap">
             <div id="map" role="application" aria-label="目标位置地图，可点击地图或拖动标记选择坐标"></div>
+            <div class="map-toolbar">
+              <label for="map-layer-select">地图图层</label>
+              <select id="map-layer-select" class="map-layer-select">
+                <option value="esri-proxy" selected>Esri 代理（推荐）</option>
+                <option value="esri">Esri 直连</option>
+                <option value="amap-proxy">高德代理</option>
+              </select>
+            </div>
             <div class="map-hint">点击地图或拖动标记以选择位置</div>
           </div>
 

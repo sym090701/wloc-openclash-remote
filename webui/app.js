@@ -9,6 +9,26 @@
     longitude: 139.767125,
     accuracy: 25
   });
+  const MAP_LAYERS = Object.freeze({
+    "esri-proxy": {
+      label: "Esri 代理（推荐）",
+      url: "/api/map-tile?source=esri&z={z}&x={x}&y={y}",
+      maxZoom: 19,
+      attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Source: Esri, OpenStreetMap contributors'
+    },
+    esri: {
+      label: "Esri 直连",
+      url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+      maxZoom: 19,
+      attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Source: Esri, OpenStreetMap contributors'
+    },
+    "amap-proxy": {
+      label: "高德代理",
+      url: "/api/map-tile?source=amap&z={z}&x={x}&y={y}",
+      maxZoom: 18,
+      attribution: '&copy; <a href="https://www.amap.com/">高德地图</a>'
+    }
+  });
 
   const appState = {
     authenticated: false,
@@ -22,6 +42,7 @@
     accuracyCircle: null,
     circleRenderer: null,
     tileErrorShown: false,
+    tileLayer: null,
     pollTimer: null,
     selectedDeviceId: null
   };
@@ -67,7 +88,7 @@
       "service-detail", "current-location-name", "current-location-coords",
       "enabled-device-count", "device-count-meta", "revision-value", "last-updated",
       "dirty-badge", "selected-device-label", "location-empty", "location-editor",
-      "map", "target-form", "target-name", "target-latitude",
+      "map", "map-layer-select", "target-form", "target-name", "target-latitude",
       "target-longitude", "target-accuracy", "target-accuracy-range", "center-map-button",
       "save-as-preset", "add-device-button", "devices-body", "devices-empty",
       "add-preset-button", "presets-list", "presets-empty", "events-list", "events-empty",
@@ -89,6 +110,7 @@
     ui.loginForm.addEventListener("submit", handleLogin);
     ui.logoutButton.addEventListener("click", handleLogout);
     ui.refreshButton.addEventListener("click", () => void loadState({ preserveDraft: true }));
+    ui.mapLayerSelect.addEventListener("change", () => switchMapLayer(ui.mapLayerSelect.value));
 
     ui.targetName.addEventListener("input", () => {
       const device = selectedDraftDevice();
@@ -667,6 +689,24 @@
       : "修改后点击应用配置";
   }
 
+  function switchMapLayer(key, initial = false) {
+    if (!appState.map) return;
+    const layer = MAP_LAYERS[key] || MAP_LAYERS["esri-proxy"];
+    if (appState.tileLayer) appState.map.removeLayer(appState.tileLayer);
+    appState.tileErrorShown = false;
+    appState.tileLayer = window.L.tileLayer(layer.url, {
+      maxZoom: layer.maxZoom,
+      attribution: layer.attribution
+    });
+    appState.tileLayer.on("tileerror", () => {
+      if (appState.tileErrorShown) return;
+      appState.tileErrorShown = true;
+      showToast("地图底图加载失败；可切换其他图层或直接输入经纬度。", "warning");
+    });
+    appState.tileLayer.addTo(appState.map);
+    if (!initial && ui.mapLayerSelect.value !== key) ui.mapLayerSelect.value = key;
+  }
+
   function ensureMap() {
     if (appState.map) {
       window.requestAnimationFrame(() => appState.map.invalidateSize());
@@ -687,20 +727,7 @@
       preferCanvas: true
     }).setView([target.latitude, target.longitude], 13);
 
-    const tiles = window.L.tileLayer(
-      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
-      {
-        maxZoom: 19,
-        attribution:
-          'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Source: Esri, OpenStreetMap contributors'
-      }
-    );
-    tiles.on("tileerror", () => {
-      if (appState.tileErrorShown) return;
-      appState.tileErrorShown = true;
-      showToast("地图底图加载失败；坐标编辑和配置应用仍可使用。", "warning");
-    });
-    tiles.addTo(appState.map);
+    switchMapLayer(ui.mapLayerSelect.value || "esri-proxy", true);
 
     const icon = window.L.divIcon({
       className: "wloc-marker",
