@@ -11,22 +11,24 @@
   });
   const MAP_LAYERS = Object.freeze({
     "esri-proxy": {
-      label: "Esri 代理（推荐）",
       url: "/api/map-tile?source=esri&z={z}&x={x}&y={y}",
       maxZoom: 19,
       attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Source: Esri, OpenStreetMap contributors'
     },
     esri: {
-      label: "Esri 直连",
       url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
       maxZoom: 19,
       attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a> — Source: Esri, OpenStreetMap contributors'
     },
-    "amap-proxy": {
-      label: "高德代理",
-      url: "/api/map-tile?source=amap&z={z}&x={x}&y={y}",
-      maxZoom: 18,
-      attribution: '&copy; <a href="https://www.amap.com/">高德地图</a>'
+    osm: {
+      url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    },
+    "osm-proxy": {
+      url: "/api/map-tile?source=osm&z={z}&x={x}&y={y}",
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }
   });
 
@@ -696,6 +698,7 @@
     appState.tileErrorShown = false;
     appState.tileLayer = window.L.tileLayer(layer.url, {
       maxZoom: layer.maxZoom,
+      referrerPolicy: "origin",
       attribution: layer.attribution
     });
     appState.tileLayer.on("tileerror", () => {

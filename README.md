@@ -51,7 +51,7 @@ WLOC_ROUTER_IP=192.168.50.1
 
 然后重启 OpenClash。钩子会添加一个 HTTP 代理节点和两个精确域名规则，并保留服务器与路由器的直连排除。
 
-5. 从服务器 `data/mitmproxy/mitmproxy-ca-cert.pem` 导出公钥证书，在 iOS/iPadOS 上安装描述文件，并在“关于本机 → 证书信任设置”中完全信任。不要导出或分享 `mitmproxy-ca.pem`，它包含私钥。
+5. 在 iPhone 或 iPad 的 Safari 中登录管理页，点击“下载 CA 证书”获取 DER 格式的 `.cer`。在“设置 → 已下载描述文件”中安装，再打开“通用 → 关于本机 → 证书信任设置”，启用该证书的完全信任。
 
 6. 打开 `http://<docker-server>:18082` 选择位置。设备的默认网关必须是运行 OpenClash 的旁路由。
 

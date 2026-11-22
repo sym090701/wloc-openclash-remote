@@ -20,7 +20,10 @@ import time
 from typing import Any, Mapping
 from urllib import error as urlerror
 from urllib import request as urlrequest
-from urllib.parse import quote, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
+
+from cryptography import x509
+from cryptography.hazmat.primitives.serialization import Encoding
 
 from wloc_config import (
     AGGREGATE_PROVIDER_NAME,
@@ -41,6 +44,16 @@ SESSION_COOKIE = "wloc_session"
 SESSION_TTL_SECONDS = 12 * 60 * 60
 MAX_JSON_BYTES = 64 * 1024
 PASSWORD_ITERATIONS = 310_000
+MAX_TILE_BYTES = 2 * 1024 * 1024
+TILE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/avif"}
+
+
+class _NoTileRedirects(urlrequest.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+TILE_OPENER = urlrequest.build_opener(_NoTileRedirects())
 
 
 class WebError(RuntimeError):
@@ -688,7 +701,7 @@ class WlocRequestHandler(BaseHTTPRequestHandler):
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self'; style-src 'self'; "
-            "img-src 'self' data: https://server.arcgisonline.com; "
+            "img-src 'self' data: https://server.arcgisonline.com https://tile.openstreetmap.org; "
             "connect-src 'self'; object-src 'none'; base-uri 'none'; "
             "frame-ancestors 'none'; form-action 'self'",
         )
@@ -701,15 +714,19 @@ class WlocRequestHandler(BaseHTTPRequestHandler):
         *,
         cookie: str | None = None,
         cache: str = "no-store",
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(content)))
+        if status != HTTPStatus.NOT_MODIFIED:
+            self.send_header("Content-Length", str(len(content)))
         if cookie is not None:
             self.send_header("Set-Cookie", cookie)
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self._security_headers(cache=cache)
         self.end_headers()
-        if self.command != "HEAD":
+        if self.command != "HEAD" and status != HTTPStatus.NOT_MODIFIED:
             self.wfile.write(content)
 
     def _json(
@@ -815,26 +832,35 @@ class WlocRequestHandler(BaseHTTPRequestHandler):
                 return
             self._json(HTTPStatus.OK, {"ok": True, **self.app.state()})
             return
+        if path == "/api/map-tile":
+            if not self._authenticated():
+                self._fail(HTTPStatus.UNAUTHORIZED, "authentication required")
+                return
+            self._map_tile()
+            return
         if path == "/api/ca-cert":
             if not self._authenticated():
                 self._fail(HTTPStatus.UNAUTHORIZED, "authentication required")
                 return
             try:
-                content = self.app.ca_cert_path.read_bytes()
+                certificate = self.app.ca_cert_path.read_bytes()
             except OSError:
                 self._fail(HTTPStatus.NOT_FOUND, "CA certificate is not available")
                 return
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "application/x-pem-file")
-            self.send_header("Content-Length", str(len(content)))
-            self.send_header(
-                "Content-Disposition",
-                'attachment; filename="wloc-mitmproxy-ca-cert.pem"',
+            try:
+                if certificate.lstrip().startswith(b"-----BEGIN CERTIFICATE-----"):
+                    root = x509.load_pem_x509_certificate(certificate.lstrip())
+                else:
+                    root = x509.load_der_x509_certificate(certificate)
+            except ValueError:
+                self._fail(HTTPStatus.SERVICE_UNAVAILABLE, "CA certificate could not be parsed")
+                return
+            self._send_bytes(
+                HTTPStatus.OK,
+                root.public_bytes(Encoding.DER),
+                "application/x-x509-ca-cert",
+                headers={"Content-Disposition": 'attachment; filename="wloc-mitmproxy-ca-cert.cer"'},
             )
-            self._security_headers(cache="no-store")
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(content)
             return
         self._fail(HTTPStatus.NOT_FOUND, "not found")
 
@@ -889,6 +915,81 @@ class WlocRequestHandler(BaseHTTPRequestHandler):
         except Exception:
             self.app.events.record("error", "WebUI 请求处理失败")
             self._fail(HTTPStatus.INTERNAL_SERVER_ERROR, "internal server error")
+
+    def _map_tile(self) -> None:
+        query = parse_qs(urlsplit(self.path).query, keep_blank_values=False)
+        source = (query.get("source") or [""])[0]
+        try:
+            zoom = int((query.get("z") or [""])[0])
+            tile_x = int((query.get("x") or [""])[0])
+            tile_y = int((query.get("y") or [""])[0])
+        except (TypeError, ValueError):
+            self._fail(HTTPStatus.BAD_REQUEST, "invalid map tile coordinates")
+            return
+        if not 0 <= zoom <= 19:
+            self._fail(HTTPStatus.BAD_REQUEST, "invalid map zoom")
+            return
+        limit = 1 << zoom
+        if not 0 <= tile_x < limit or not 0 <= tile_y < limit:
+            self._fail(HTTPStatus.BAD_REQUEST, "invalid map tile coordinates")
+            return
+        if source == "esri":
+            upstream_url = (
+                "https://server.arcgisonline.com/ArcGIS/rest/services/"
+                f"World_Street_Map/MapServer/tile/{zoom}/{tile_y}/{tile_x}"
+            )
+        elif source == "osm":
+            upstream_url = f"https://tile.openstreetmap.org/{zoom}/{tile_x}/{tile_y}.png"
+        else:
+            self._fail(HTTPStatus.BAD_REQUEST, "unsupported map source")
+            return
+        request_headers = {
+            "User-Agent": "WLOC-OpenClash-Remote/2.0 (+https://github.com/sym090701/wloc-openclash-remote)",
+            "Accept": "image/avif,image/webp,image/png,image/jpeg",
+        }
+        referer = self.headers.get("Referer", "")
+        origin = f"http://{self.headers['Host']}/"
+        if referer.startswith(origin):
+            request_headers["Referer"] = origin
+        for name in ("If-None-Match", "If-Modified-Since"):
+            if name in self.headers:
+                request_headers[name] = self.headers[name]
+        request = urlrequest.Request(upstream_url, headers=request_headers)
+        try:
+            with TILE_OPENER.open(request, timeout=8) as response:
+                content_type = response.headers.get_content_type()
+                if response.status != HTTPStatus.OK or content_type not in TILE_CONTENT_TYPES:
+                    raise OSError("invalid map tile response")
+                content = response.read(MAX_TILE_BYTES + 1)
+                if not 0 < len(content) <= MAX_TILE_BYTES:
+                    raise OSError("invalid map tile size")
+                response_headers = response.headers
+            status = HTTPStatus.OK
+        except urlerror.HTTPError as error:
+            with error:
+                if error.code != HTTPStatus.NOT_MODIFIED:
+                    self._fail(HTTPStatus.BAD_GATEWAY, "map tile upstream unavailable")
+                    return
+                status = HTTPStatus.NOT_MODIFIED
+                content, content_type, response_headers = b"", "application/octet-stream", error.headers
+        except OSError:
+            self._fail(HTTPStatus.BAD_GATEWAY, "map tile upstream unavailable")
+            return
+        cache_headers = {
+            name: response_headers[name]
+            for name in ("Expires", "ETag", "Last-Modified")
+            if name in response_headers
+        }
+        # The response is authenticated. Preserve upstream freshness in the browser cache.
+        upstream_cache = response_headers.get("Cache-Control")
+        if upstream_cache:
+            directives = [value.strip() for value in upstream_cache.split(",")]
+            cache = ", ".join(["private", *(value for value in directives if value.lower() != "public")])
+        elif "Expires" in cache_headers or status == HTTPStatus.NOT_MODIFIED:
+            cache = "private"
+        else:
+            cache = "private, max-age=604800" if source == "osm" else "private, max-age=86400"
+        self._send_bytes(status, content, content_type, cache=cache, headers=cache_headers)
 
     def _login(self) -> None:
         address = self.client_address[0]
