@@ -1,0 +1,9 @@
+.env
+config.env
+data/
+*.pem
+*.key
+*.p12
+__pycache__/
+*.pyc
+.DS_Store

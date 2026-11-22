@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0b1017">
+  <title>WLOC 定位管理</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/vendor/leaflet.css">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/vendor/leaflet.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <noscript>
+    <div class="noscript">此管理界面需要启用 JavaScript。</div>
+  </noscript>
+
+  <section id="login-view" class="login-shell" aria-labelledby="login-title">
+    <div class="login-card">
+      <div class="brand-mark" aria-hidden="true"><span></span></div>
+      <p class="eyebrow">LOCAL CONTROL PLANE</p>
+      <h1 id="login-title">WLOC 定位管理</h1>
+      <p class="muted login-copy">仅限局域网访问。登录后可管理伪装位置、授权设备与地址预设。</p>
+
+      <form id="login-form" class="stack" autocomplete="on">
+        <input class="sr-only" type="text" name="username" value="wloc-admin" autocomplete="username" tabindex="-1" aria-hidden="true">
+        <label class="field">
+          <span>管理密码</span>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required autofocus>
+        </label>
+        <p id="login-error" class="form-error" role="alert" hidden></p>
+        <button id="login-button" class="button primary wide" type="submit">登录</button>
+      </form>
+      <p class="login-footnote">密码只发送到当前路由器，不会发送到地图服务。</p>
+    </div>
+  </section>
+
+  <div id="app-view" class="app-shell" hidden>
+    <header class="topbar">
+      <div class="brand-row">
+        <div class="brand-mark small" aria-hidden="true"><span></span></div>
+        <div>
+          <p class="eyebrow">WLOC CONTROL</p>
+          <h1>定位管理</h1>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <span id="connection-state" class="connection-pill"><i></i><span>正在连接</span></span>
+        <button id="password-open" class="button ghost compact" type="button">修改密码</button>
+        <button id="logout-button" class="button ghost compact" type="button">退出</button>
+      </div>
+    </header>
+
+    <main class="page-grid">
+      <section class="overview-grid" aria-label="服务概览">
+        <article class="stat-card">
+          <div class="stat-label">服务状态</div>
+          <div class="stat-value-row">
+            <span id="service-status-dot" class="status-dot unknown"></span>
+            <strong id="service-status">未知</strong>
+          </div>
+          <p id="service-detail" class="stat-meta">等待路由器响应</p>
+        </article>
+        <article class="stat-card">
+          <div class="stat-label">当前编辑设备</div>
+          <strong id="current-location-name" class="stat-value truncate">—</strong>
+          <p id="current-location-coords" class="stat-meta mono">—</p>
+        </article>
+        <article class="stat-card">
+          <div class="stat-label">已启用设备</div>
+          <strong id="enabled-device-count" class="stat-value">0</strong>
+          <p id="device-count-meta" class="stat-meta">共 0 台设备</p>
+        </article>
+        <article class="stat-card">
+          <div class="stat-label">配置版本</div>
+          <strong id="revision-value" class="stat-value mono">—</strong>
+          <p id="last-updated" class="stat-meta">尚未同步</p>
+        </article>
+      </section>
+
+      <section class="panel location-panel" aria-labelledby="location-title">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">DEVICE LOCATION</p>
+            <h2 id="location-title">设备独立位置</h2>
+            <p id="selected-device-label" class="selection-label">尚未选择设备</p>
+          </div>
+          <span id="dirty-badge" class="badge warning" hidden>有未保存修改</span>
+        </div>
+
+        <div id="location-empty" class="empty-state location-empty" hidden>
+          请先添加设备，再为该设备设置独立位置。
+        </div>
+
+        <div id="location-editor" class="location-layout">
+          <div class="map-wrap">
+            <div id="map" role="application" aria-label="目标位置地图，可点击地图或拖动标记选择坐标"></div>
+            <div class="map-hint">点击地图或拖动标记以选择位置</div>
+          </div>
+
+          <form id="target-form" class="target-form" novalidate>
+            <label class="field field-full">
+              <span>该设备的位置名称</span>
+              <input id="target-name" name="target-name" type="text" maxlength="64" placeholder="例如：美国尔湾" required>
+            </label>
+            <label class="field">
+              <span>纬度</span>
+              <input id="target-latitude" name="latitude" class="mono" type="number" min="-90" max="90" step="any" inputmode="decimal" required>
+            </label>
+            <label class="field">
+              <span>经度</span>
+              <input id="target-longitude" name="longitude" class="mono" type="number" min="-180" max="180" step="any" inputmode="decimal" required>
+            </label>
+            <label class="field field-full">
+              <span>定位精度（米）</span>
+              <div class="range-row">
+                <input id="target-accuracy-range" class="range" type="range" min="1" max="500" step="1" aria-label="定位精度">
+                <input id="target-accuracy" name="accuracy" class="accuracy-input mono" type="number" min="1" max="100000" step="1" inputmode="numeric" required>
+              </div>
+              <small>数值越小，地图显示的位置越精确。</small>
+            </label>
+            <div class="target-actions field-full">
+              <button id="center-map-button" class="button secondary" type="button">定位到标记</button>
+              <button id="save-as-preset" class="button secondary" type="button">保存为预设</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="panel devices-panel" aria-labelledby="devices-title">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">AUTHORIZED DEVICES</p>
+            <h2 id="devices-title">授权设备</h2>
+          </div>
+          <button id="add-device-button" class="button secondary compact" type="button">添加设备</button>
+        </div>
+        <p class="panel-description">每台设备拥有独立位置。建议使用固定私有 WLAN 地址，并在 DHCP 中将该 MAC 固定到对应 IPv4；MAC 只用于识别和固定租约，不直接作为代理路由键。</p>
+
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">设备名称</th>
+                <th scope="col">内网 IPv4</th>
+                <th scope="col">固定 WLAN 地址</th>
+                <th scope="col">独立位置</th>
+                <th scope="col">状态</th>
+                <th scope="col"><span class="sr-only">操作</span></th>
+              </tr>
+            </thead>
+            <tbody id="devices-body"></tbody>
+          </table>
+          <div id="devices-empty" class="empty-state" hidden>尚未添加设备</div>
+        </div>
+      </section>
+
+      <section class="panel presets-panel" aria-labelledby="presets-title">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">LOCATION PRESETS</p>
+            <h2 id="presets-title">地址预设</h2>
+          </div>
+          <button id="add-preset-button" class="button secondary compact" type="button">保存当前位置</button>
+        </div>
+        <div id="presets-list" class="preset-list"></div>
+        <div id="presets-empty" class="empty-state" hidden>保存常用地址后，可复制应用到当前选中的设备。</div>
+      </section>
+
+      <section class="panel events-panel" aria-labelledby="events-title">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">RECENT EVENTS</p>
+            <h2 id="events-title">最近事件</h2>
+          </div>
+          <button id="refresh-button" class="button ghost compact" type="button">立即刷新</button>
+        </div>
+        <ol id="events-list" class="event-list"></ol>
+        <div id="events-empty" class="empty-state" hidden>暂时没有事件记录</div>
+      </section>
+    </main>
+
+    <div class="save-bar" aria-label="配置操作">
+      <div>
+        <strong id="save-summary">配置已同步</strong>
+        <span id="save-detail">修改后点击应用配置</span>
+      </div>
+      <div class="save-actions">
+        <button id="rollback-button" class="button danger-subtle" type="button">恢复上次配置</button>
+        <button id="discard-button" class="button ghost" type="button" disabled>放弃修改</button>
+        <button id="apply-button" class="button primary" type="button" disabled>应用配置</button>
+      </div>
+    </div>
+  </div>
+
+  <dialog id="password-dialog" class="modal">
+    <form id="password-form" method="dialog" class="modal-card">
+      <input class="sr-only" type="text" name="username" value="wloc-admin" autocomplete="username" tabindex="-1" aria-hidden="true">
+      <div class="modal-heading">
+        <div>
+          <p class="section-kicker">SECURITY</p>
+          <h2>修改管理密码</h2>
+        </div>
+        <button id="password-close" class="icon-button" type="button" aria-label="关闭">×</button>
+      </div>
+      <label class="field">
+        <span>当前密码</span>
+        <input id="current-password" type="password" autocomplete="current-password" required>
+      </label>
+      <label class="field">
+        <span>新密码</span>
+        <input id="new-password" type="password" autocomplete="new-password" minlength="10" required>
+        <small>至少 10 个字符。</small>
+      </label>
+      <label class="field">
+        <span>确认新密码</span>
+        <input id="confirm-password" type="password" autocomplete="new-password" minlength="10" required>
+      </label>
+      <p id="password-error" class="form-error" role="alert" hidden></p>
+      <div class="modal-actions">
+        <button id="password-cancel" class="button ghost" type="button">取消</button>
+        <button id="password-submit" class="button primary" type="submit">更新密码</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="device-dialog" class="modal">
+    <form id="device-form" method="dialog" class="modal-card">
+      <div class="modal-heading">
+        <div>
+          <p class="section-kicker">NEW DEVICE</p>
+          <h2>添加授权设备</h2>
+        </div>
+        <button id="device-close" class="icon-button" type="button" aria-label="关闭">×</button>
+      </div>
+      <label class="field">
+        <span>设备名称</span>
+        <input id="device-name" type="text" maxlength="64" placeholder="例如：客厅 iPad" required>
+      </label>
+      <label class="field">
+        <span>内网 IPv4</span>
+        <input id="device-ip" class="mono" type="text" maxlength="15" inputmode="decimal" placeholder="192.168.1.100" required>
+      </label>
+      <label class="field">
+        <span>固定 WLAN 地址（可选）</span>
+        <input id="device-mac" class="mono" type="text" maxlength="17" autocapitalize="characters" placeholder="02:11:22:33:44:55">
+        <small>这里记录设备标签；请同时在 DHCP 中将它固定到上面的 IPv4。</small>
+      </label>
+      <p id="device-location-copy" class="form-note"></p>
+      <p id="device-error" class="form-error" role="alert" hidden></p>
+      <div class="modal-actions">
+        <button id="device-cancel" class="button ghost" type="button">取消</button>
+        <button id="device-submit" class="button primary" type="submit">添加并编辑位置</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirm-dialog" class="modal confirm-modal">
+    <form method="dialog" class="modal-card">
+      <h2 id="confirm-title">确认操作</h2>
+      <p id="confirm-message" class="muted"></p>
+      <div class="modal-actions">
+        <button id="confirm-cancel" class="button ghost" value="cancel">取消</button>
+        <button id="confirm-accept" class="button danger" value="confirm">确认</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

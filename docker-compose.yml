@@ -1,0 +1,44 @@
+services:
+  wloc-mitm:
+    image: mitmproxy/mitmproxy:12.2.3
+    container_name: wloc-mitm
+    network_mode: host
+    restart: unless-stopped
+    env_file:
+      - ./config.env
+    volumes:
+      - ./data/mitmproxy:/home/mitmproxy/.mitmproxy
+      - ./data/config:/opt/wloc-state
+      - ./data/providers:/opt/wloc-rules
+      - ./addon:/opt/wloc/addon:ro
+      - ./webui:/opt/wloc/webui:ro
+    command:
+      - mitmdump
+      - --mode
+      - regular@${WLOC_LISTEN_ADDR:-192.168.50.2}:18081
+      - --allow-hosts
+      - '^(gs-loc\\.apple\\.com|gs-loc-cn\\.apple\\.com):443$'
+      - --no-show-ignored-hosts
+      - --set
+      - connection_strategy=lazy
+      - --set
+      - flow_detail=1
+      - --set
+      - termlog_verbosity=info
+      - -s
+      - /opt/wloc/addon/wloc_addon.py
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "rows=(line.split() for line in open('/proc/net/tcp').read().splitlines()[1:]); ports={int(row[1].split(':')[1],16) for row in rows if row[3]=='0A'}; assert {18081,18082} <= ports"
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
